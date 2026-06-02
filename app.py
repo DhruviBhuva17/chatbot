@@ -8,10 +8,20 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 logger.info("Loading model and tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
-model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
-logger.info("Model loaded successfully.")
-
+try:
+    import torch
+    torch.set_num_threads(1)
+    model_name = "microsoft/DialoGPT-small"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        low_cpu_mem_usage=True
+    )
+    logger.info("Model loaded successfully.")
+except Exception as e:
+    logger.error(f"Failed to load the model. Ensure you have enough memory. Error: {e}")
+    import sys
+    sys.exit(1)
 app = Flask(__name__)
 
 # Global state to keep chat history
@@ -40,8 +50,9 @@ def get_Chat_response(text):
         new_user_input_ids = tokenizer.encode(str(text) + tokenizer.eos_token, return_tensors='pt')
 
         # append the new user input tokens to the chat history
+        # limit history to last 500 tokens to avoid unnecessary memory allocation growth
         if chat_history_ids is not None:
-            bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1)
+            bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1)[:, -500:]
         else:
             bot_input_ids = new_user_input_ids
 
