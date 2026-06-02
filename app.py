@@ -10,16 +10,24 @@ logger = logging.getLogger(__name__)
 logger.info("Loading model and tokenizer...")
 try:
     import torch
+    # Limit PyTorch to 1 thread to minimize background memory and CPU usage
     torch.set_num_threads(1)
-    model_name = "microsoft/DialoGPT-small"
+    
+    # Using distilgpt2 (82M parameters) which is extremely lightweight and RAM-friendly
+    model_name = "distilgpt2"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    
+    # Ensure the tokenizer has a pad token
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         low_cpu_mem_usage=True
     )
-    logger.info("Model loaded successfully.")
+    logger.info(f"{model_name} loaded successfully.")
 except Exception as e:
-    logger.error(f"Failed to load the model. Ensure you have enough memory. Error: {e}")
+    logger.error(f"Failed to load the model. Ensure you have enough memory (4GB+). Error: {e}")
     import sys
     sys.exit(1)
 app = Flask(__name__)
@@ -50,19 +58,19 @@ def get_Chat_response(text):
         new_user_input_ids = tokenizer.encode(str(text) + tokenizer.eos_token, return_tensors='pt')
 
         # append the new user input tokens to the chat history
-        # limit history to last 500 tokens to avoid unnecessary memory allocation growth
+        # limit history to last 100 tokens to drastically reduce memory allocation growth
         if chat_history_ids is not None:
-            bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1)[:, -500:]
+            bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1)[:, -100:]
         else:
             bot_input_ids = new_user_input_ids
 
         # create attention mask
         attention_mask = torch.ones(bot_input_ids.shape, dtype=torch.long)
 
-        # generate a response while limiting the total chat history to 1000 tokens
+        # generate a response while limiting the total chat history to 256 tokens (lower memory footprint)
         chat_history_ids = model.generate(
             bot_input_ids,
-            max_length=1000,
+            max_length=256,
             pad_token_id=tokenizer.eos_token_id,
             attention_mask=attention_mask
         )
